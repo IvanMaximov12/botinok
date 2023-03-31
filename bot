@@ -1,0 +1,220 @@
+import telegram
+import logging
+import os
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime, Float
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+
+# загружаем переменные окружения
+load_dotenv()
+
+# создаем экземпляр бота
+bot = telegram.Bot(token=os.getenv('BOT_TOKEN'))
+
+# создаем экземпляр логгера
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# создаем подключение к базе данных
+engine = create_engine(os.getenv('DATABASE_URL'))
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
+
+# описание таблиц базы данных
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(Integer, unique=True)
+    username = Column(String)
+    level = Column(Integer, default=1)
+    balance = Column(Float, default=0)
+    referrer_id = Column(Integer, ForeignKey('users.id'))
+    referrer = relationship('User', remote_side=[id])
+    last_withdrawal = Column(DateTime, default=datetime.now)
+
+# создаем таблицы в базе данных
+Base.metadata.create_all(engine)
+
+# обработчик команды /start
+def start(update, context):
+    chat_id = update.effective_chat.id
+    username = update.effective_chat.username
+    user = User.query.filter_by(chat_id=chat_id).first()
+    if not user:
+        user = User(chat_id=chat_id, username=username)
+        db.session.add(user)
+        db.session.commit()
+        context.bot.send_message(chat_id=chat_id, text="Добро пожаловать в нашего бота! Для начала выполните задание по подписке на канал.")
+    else:
+        context.bot.send_message(chat_id=chat_id, text="Вы уже зарегистрированы в боте.")
+
+# обработчик команды /task
+def task(update, context):
+    chat_id = update.effective_chat.id
+    user = User.query.filter_by(chat_id=chat_id).first()
+    if user.level == 1:
+        # задание для уровня 1 - подписка на канал
+        context.bot.send_message(chat_id=chat_id, text="Подпишитесь на канал @ton_blockchain и отправьте скриншот подписки.")
+    elif user.level == 2:
+        # задание для уровня 2 - просмотр сообщений в канале
+        context.bot.send_message(chat_id=chat_id, text="Просмотрите 10 сообщений в канале @ton_blockchain и отправьте скриншот.")
+    else:
+        context.bot.send_message(chat_id=chat_id, text="У вас уже максимальный уровень.")
+
+# обработчик сообщения с подтверждением задания
+def task_confirm(update, context):
+    chat_id = update.effective_chat.id
+    user = User.query.filter_by(chat_id=chat_id).first()
+    if user.level == 1:
+                # проверяем выполнение задания для уровня 1 - подписка на канал
+        if update.message.photo:
+            user.balance += 1.0
+            user.level = 2
+            db.session.commit()
+            context.bot.send_message(chat_id=chat_id, text="Задание выполнено успешно! Вы получили 1 TON на свой баланс и перешли на уровень 2.")
+        else:
+            context.bot.send_message(chat_id=chat_id, text="Вы не отправили скриншот подписки. Попробуйте еще раз.")
+    elif user.level == 2:
+        # проверяем выполнение задания для уровня 2 - просмотр сообщений в канале
+        if update.message.photo:
+            user.balance += 2.0
+            user.level = 3
+            db.session.commit()
+            context.bot.send_message(chat_id=chat_id, text="Задание выполнено успешно! Вы получили 2 TON на свой баланс и перешли на уровень 3.")
+        else:
+            context.bot.send_message(chat_id=chat_id, text="Вы не отправили скриншот просмотра сообщений. Попробуйте еще раз.")
+    else:
+        context.bot.send_message(chat_id=chat_id, text="У вас уже максимальный уровень.")
+
+# обработчик команды /referral
+def referral(update, context):
+    chat_id = update.effective_chat.id
+    user = User.query.filter_by(chat_id=chat_id).first()
+    # получаем список рефералов пользователя
+    referrals = User.query.filter_by(referrer=user).all()
+    text = "Ваши рефералы:\n"
+    for ref in referrals:
+        text += f"- @{ref.username}\n"
+    context.bot.send_message(chat_id=chat_id, text=text)
+
+# обработчик сообщения с именем пользователя, приглашенного пользователем
+def invite(update, context):
+    chat_id = update.effective_chat.id
+    user = User.query.filter_by(chat_id=chat_id).first()
+    # получаем имя пользователя, которого пригласил пользователь
+    invited_username = update.message.text.strip()
+    # ищем пользователя с таким именем
+    invited_user = User.query.filter_by(username=invited_username).first()
+    if not invited_user:
+        context.bot.send_message(chat_id=chat_id, text="Пользователь с таким именем не найден.")
+    else:
+        # устанавливаем приглашающего пользователя как реферера приглашенному
+        invited_user.referrer = user
+        db.session.commit()
+        context.bot.send_message(chat_id=chat_id, text=f"Вы пригласили @{invited_username} в наш бот!")
+
+# обработчик команды /balance
+def balance(update, context):
+    chat_id = update.effective_chat.id
+    user = User.query.filter_by(chat_id=chat_id).first()
+    context.bot.send_message(chat_id=chat_id, text=f"На вашем балансе {user.balance} TON.")
+
+# обработчик команды /withdraw
+def withdraw(update, context):
+    chat_id = update.effective_chat.id
+    user = User.query.filter_by(chat_id=chat_id).
+def withdraw(update, context):
+chat_id = update.effective_chat.id
+user = User.query.filter_by(chat_id=chat_id).first()
+if user.balance >= 10.0:
+# проверяем, прошло ли 24 часа с момента последнего вывода
+now = datetime.now()
+diff = (now - user.last_withdrawal).total_seconds()
+if diff >= 86400:
+user.balance -= 10.0
+user.last_withdrawal = now
+db.session.commit()
+context.bot.send_message(chat_id=chat_id, text="Запрос на вывод отправлен. Средства будут зачислены на ваш кошелек в течение 24 часов.")
+else:
+context.bot.send_message(chat_id=chat_id, text="Вы уже выводили средства сегодня. Попробуйте позже.")
+else:
+context.bot.send_message(chat_id=chat_id, text="Недостаточно средств для вывода. Минимальная сумма для вывода - 10 TON.")
+
+#обработчик команды /upgrade
+def upgrade(update, context):
+chat_id = update.effective_chat.id
+user = User.query.filter_by(chat_id=chat_id).first()
+if user.level == 1:
+if user.balance >= 5.0:
+user.balance -= 5.0
+user.level = 2
+db.session.commit()
+context.bot.send_message(chat_id=chat_id, text="Вы успешно улучшили свой уровень до 2. Теперь доступно новое задание!")
+else:
+context.bot.send_message(chat_id=chat_id, text="Недостаточно средств для улучшения уровня. Стоимость улучшения - 5 TON.")
+elif user.level == 2:
+if user.balance >= 10.0:
+user.balance -= 10.0
+user.level = 3
+db.session.commit()
+context.bot.send_message(chat_id=chat_id, text="Вы успешно улучшили свой уровень до 3. Поздравляем!")
+else:
+context.bot.send_message(chat_id=chat_id, text="Недостаточно средств для улучшения уровня. Стоимость улучшения - 10 TON.")
+else:
+context.bot.send_message(chat_id=chat_id, text="У вас уже максимальный уровень.")
+
+#создаем обработчик сообщений
+def message_handler(update, context):
+chat_id = update.effective_chat.id
+context.bot.send_message(chat_id=chat_id, text="Извините, я не понимаю вашу команду. Воспользуйтесь /help, чтобы узнать список доступных команд.")
+
+#создаем обработчик команды /help
+def help(update, context):
+chat_id = update.effective_chat.id
+text = "/start - начать работу с ботом\n/task - выполнить задание\n/referral - посмотреть список рефералов\n/balance - проверить баланс\n/withdraw - вывести средства\n/upgrade - улучшить уровень"
+context.bot.send_message(chat_id=chat_id, text=text)
+
+#создаем экземпляр бота
+bot = telegram.Bot(token=os.getenv('BOT_TOKEN'))
+
+#создаем экземпляр логгера
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(name)
+
+#создаем подключение к базе данных
+engine = create_engine(os.getenv('DATABASE_URL'))
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
+
+#описание таблиц базы данных
+class User(Base):
+tablename = 'users'
+id = Column(Integer, primary_key=True)
+chat_id = Column(Integer, unique=True)
+username = Column(String)
+level = Column(Integer, default=1)
+balance = Column(Float, default=0)
+referrer_id = Column(Integer, ForeignKey('users.id'))
+
+referrer = relationship('User', remote_side=[id])
+last_withdrawal = Column(DateTime, default=datetime.now)
+
+#создаем таблицы в базе данных
+Base.metadata.create_all(engine)
+
+#добавляем обработчики команд в диспетчер
+dispatcher.add_handler(CommandHandler('start', start))
+dispatcher.add_handler(CommandHandler('task', task))
+dispatcher.add_handler(MessageHandler(Filters.photo & ~Filters.command, task_confirm))
+dispatcher.add_handler(CommandHandler('referral', referral))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, invite))
+dispatcher.add_handler(CommandHandler('balance', balance))
+dispatcher.add_handler(CommandHandler('withdraw', withdraw))
+dispatcher.add_handler(CommandHandler('upgrade', upgrade))
+dispatcher.add_handler(CommandHandler('help', help))
+dispatcher.add_handler(MessageHandler(Filters.all, message_handler))
+
+#запускаем бота
+updater.start_polling()
